@@ -1,0 +1,108 @@
+# Release workflow for refine-backlog-cli.
+# Publishes to npm when the version in package.json is bumped.
+#
+# Secrets required:
+#   NPM_TOKEN           — npm publish token
+#   DISCORD_WEBHOOK_URL — #refine-backlog channel webhook
+#
+# See: products/refine-backlog/RELEASE_CONFIG.yaml
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm test --if-present
+
+  publish:
+    name: Publish to npm
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+      version: ${{ steps.publish.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check if version is new
+        id: version_check
+        run: |
+          LOCAL=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view refine-backlog-cli version 2>/dev/null || echo "0.0.0")
+          echo "local=$LOCAL published=$PUBLISHED"
+          if [ "$LOCAL" != "$PUBLISHED" ]; then
+            echo "should_publish=true" >> $GITHUB_OUTPUT
+            echo "version=$LOCAL" >> $GITHUB_OUTPUT
+          else
+            echo "should_publish=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Version $LOCAL already published — skipping"
+          fi
+
+      - name: Build
+        if: steps.version_check.outputs.should_publish == 'true'
+        run: npm run build --if-present
+
+      - name: Publish
+        id: publish
+        if: steps.version_check.outputs.should_publish == 'true'
+        run: |
+          npm publish --access public
+          echo "published=true" >> $GITHUB_OUTPUT
+          echo "version=${{ steps.version_check.outputs.version }}" >> $GITHUB_OUTPUT
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify
+        if: steps.version_check.outputs.should_publish == 'true'
+        run: |
+          sleep 10
+          PUBLISHED=$(npm view refine-backlog-cli version)
+          EXPECTED="${{ steps.version_check.outputs.version }}"
+          [ "$PUBLISHED" = "$EXPECTED" ] && echo "✅ refine-backlog-cli@$PUBLISHED live" || (echo "::error::Publish verification failed"; exit 1)
+
+  notify:
+    name: Notify Discord
+    needs: publish
+    if: always() && needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: "1474028159233163358"
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          python3 -c "
+          import json, urllib.request, os
+          payload = {
+            'embeds': [{
+              'title': '📦 refine-backlog-cli published',
+              'description': f\"v{os.environ['VERSION']} is live on npm\n\nnpx refine-backlog-cli\",
+              'color': 3066993,
+              'url': f\"https://www.npmjs.com/package/refine-backlog-cli/v/{os.environ['VERSION']}\"
+            }]
+          }
+          req = urllib.request.Request(
+            f"https://discord.com/api/v10/channels/{os.environ['DISCORD_CHANNEL_ID']}/messages",
+            data=json.dumps(payload).encode(),
+            headers={'Content-Type': 'application/json', 'Authorization': f"Bot {os.environ['DISCORD_BOT_TOKEN']}", 'User-Agent': 'DiscordBot (refinebacklog.com, 1)'}
+          )
+          urllib.request.urlopen(req)
+          print('✅ Discord notified')
+          " || echo "⚠️ Discord notify failed"
