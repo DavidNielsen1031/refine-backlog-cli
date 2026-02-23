@@ -1,149 +1,73 @@
 # refine-backlog-cli
 
-Transform messy backlog items into structured, actionable work items from the command line.
+Transform messy backlog items into structured, actionable work items — from the command line.
 
-Powered by the [Refine Backlog API](https://refinebacklog.com).
+Powered by [Refine Backlog](https://refinebacklog.com).
 
-## Install
+## Quick start
 
 ```bash
-npm install -g refine-backlog-cli
+npx refine-backlog-cli "Fix login bug" "Add dark mode" "Improve search performance"
 ```
 
-Or use directly with `npx` (no install needed):
+## With a license key (Pro/Team — removes rate limits)
 
 ```bash
-npx refine-backlog-cli "Fix login bug"
+npx refine-backlog-cli --key YOUR_LICENSE_KEY "Fix login bug" "Add dark mode"
 ```
 
-## Usage
+Or set it in your environment (recommended for CI):
 
 ```bash
-# Single item
-npx refine-backlog-cli "Fix login bug"
+export REFINE_BACKLOG_KEY=YOUR_LICENSE_KEY
+npx refine-backlog-cli "Fix login bug" "Add dark mode"
+```
 
-# Multiple items
-npx refine-backlog-cli "Fix login bug" "Add dark mode" "Improve performance"
+## Read from a file
 
-# From file (one item per line)
+One backlog item per line:
+
+```bash
 npx refine-backlog-cli --file backlog.txt
-
-# Pipe from stdin
-cat backlog.txt | npx refine-backlog-cli
-
-# User story format + Gherkin acceptance criteria
-npx refine-backlog-cli "Fix login bug" --user-stories --gherkin
-
-# Add product context for better results
-npx refine-backlog-cli "Fix login bug" --context "B2B SaaS product for PMs"
-
-# JSON output (great for piping into other tools)
-npx refine-backlog-cli "Fix login bug" --format json
-
-# Pro/Team tier with license key (more items per request)
-npx refine-backlog-cli --file backlog.txt --key YOUR_LICENSE_KEY
-```
-
-## Output
-
-**Default (markdown):**
-```
-## Fix User Login Bug
-
-**Problem:** Users cannot authenticate with valid credentials after a password reset flow.
-
-**Estimate:** M | **Priority:** HIGH
-**Rationale:** Blocks user access and directly impacts retention.
-
-**Acceptance Criteria:**
-- Users with valid credentials can log in successfully after password reset
-- Error messages are clear when login fails
-- Session persists appropriately after login
-
-**Tags:** bug, auth, user-experience
-```
-
-**JSON (`--format json`):**
-```json
-{
-  "items": [
-    {
-      "title": "Fix User Login Bug",
-      "problemStatement": "...",
-      "acceptanceCriteria": ["..."],
-      "estimate": "M",
-      "priority": "HIGH",
-      "rationale": "...",
-      "tags": ["bug", "auth"]
-    }
-  ]
-}
 ```
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
-| `--file, -f <path>` | Read items from a file (one per line) |
-| `--user-stories` | Format titles as "As a [user], I want [goal], so that [benefit]" |
-| `--gherkin` | Format acceptance criteria in Given/When/Then syntax |
-| `--format <fmt>` | `markdown` (default) or `json` |
-| `--context, -c <text>` | Product context for better output quality |
-| `--key, -k <key>` | License key for Pro/Team tier |
-| `--version, -v` | Show version |
-| `--help, -h` | Show help |
+| `--key <key>` | License key (or set `REFINE_BACKLOG_KEY` env var) |
+| `--file <path>` | Read items from a file (one per line) |
+| `--user-stories` | Add a user story to each item |
+| `--gherkin` | Write acceptance criteria in Given/When/Then format |
+| `--format json` | Output raw JSON instead of formatted text |
+| `--context <text>` | Project context to guide the AI |
 
-## Tiers
+## Use in CI / GitHub Actions
 
-| Tier | Items/Request | Price |
-|------|--------------|-------|
-| Free | 5 | No key needed |
-| Pro | 25 | $9/mo |
-| Team | 50 | $29/mo |
-
-[Get a license key →](https://refinebacklog.com/pricing)
-
-## CI/CD Usage
-
-**GitHub Actions — refine issues on creation:**
 ```yaml
-name: Refine Backlog Item
-on:
-  issues:
-    types: [opened]
-
-jobs:
-  refine:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Refine issue
-        run: |
-          REFINED=$(echo "${{ github.event.issue.title }}" | npx refine-backlog-cli --format json --key ${{ secrets.REFINE_BACKLOG_KEY }})
-          echo "$REFINED"
+- name: Refine backlog
+  run: npx refine-backlog-cli --file backlog.txt --format json > refined.json
+  env:
+    REFINE_BACKLOG_KEY: ${{ secrets.REFINE_BACKLOG_KEY }}
 ```
 
-**Shell script batch processing:**
+## Pipe-friendly
+
 ```bash
-#!/bin/bash
-cat sprint-items.txt | npx refine-backlog-cli --gherkin --user-stories > refined-sprint.md
+echo "Fix login bug" | npx refine-backlog-cli
+cat backlog.txt | npx refine-backlog-cli --format json | jq '.[0].title'
 ```
 
-**npm script in package.json:**
-```json
-{
-  "scripts": {
-    "refine": "npx refine-backlog-cli --file backlog.txt --user-stories --gherkin"
-  }
-}
-```
+## Get a license key
+
+Free tier: 3 requests/day, 5 items per request.  
+Pro ($9/mo): unlimited requests, 25 items.  
+Team ($29/mo): unlimited requests, 50 items.
+
+→ [Get a license key at refinebacklog.com/pricing](https://refinebacklog.com/pricing)
 
 ## Links
 
-- [refinebacklog.com](https://refinebacklog.com) — web interface
-- [API docs](https://refinebacklog.com/openapi.yaml) — OpenAPI spec
-- [Pricing](https://refinebacklog.com/pricing) — upgrade for higher limits
-- [GitHub](https://github.com/DavidNielsen1031/refine-backlog-cli) — source
-
-## License
-
-MIT
+- [Website](https://refinebacklog.com)
+- [API docs](https://refinebacklog.com/openapi.yaml)
+- [MCP server](https://www.npmjs.com/package/refine-backlog-mcp)

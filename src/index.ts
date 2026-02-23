@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import https from 'https'
 import fs from 'fs'
+import path from 'path'
 import readline from 'readline'
 
 const API_URL = 'https://refinebacklog.com/api/refine'
-const VERSION = '1.0.0'
+const VERSION = '1.0.2'
 
 interface RefinedItem {
   title: string
@@ -24,6 +25,79 @@ interface ApiResponse {
     itemsProcessed: number
     tokens?: number
   }
+}
+
+/**
+ * Auto-detect project context from well-known files in the current working directory.
+ * Tries files in priority order, combining up to 700 chars total.
+ * Returns the context string and logs what was found.
+ */
+function detectProjectContext(): string | undefined {
+  const cwd = process.cwd()
+  const MAX_CHARS = 700
+
+  const sources: Array<{ file: string; extractor: (content: string) => string }> = [
+    { file: 'AGENTS.md',                       extractor: (c) => c.slice(0, 300) },
+    { file: 'CLAUDE.md',                       extractor: (c) => c.slice(0, 300) },
+    { file: 'CODEX.md',                        extractor: (c) => c.slice(0, 300) },
+    { file: 'GEMINI.md',                       extractor: (c) => c.slice(0, 300) },
+    { file: '.github/copilot-instructions.md', extractor: (c) => c.slice(0, 300) },
+    { file: '.windsurfrules',                  extractor: (c) => c.slice(0, 300) },
+    { file: 'llms.txt',                        extractor: (c) => c.slice(0, 300) },
+    {
+      file: 'README.md',
+      extractor: (c) => c.slice(0, 300),
+    },
+    {
+      file: 'package.json',
+      extractor: (c) => {
+        try {
+          const pkg = JSON.parse(c)
+          const parts: string[] = []
+          if (pkg.name) parts.push(`name: ${pkg.name}`)
+          if (pkg.description) parts.push(`description: ${pkg.description}`)
+          const deps = [
+            ...Object.keys(pkg.dependencies || {}),
+            ...Object.keys(pkg.devDependencies || {}),
+          ].slice(0, 8)
+          if (deps.length) parts.push(`deps: ${deps.join(', ')}`)
+          return parts.join(' | ')
+        } catch {
+          return ''
+        }
+      },
+    },
+    { file: 'prisma/schema.prisma', extractor: (c) => c.slice(0, 300) },
+  ]
+
+  const collected: string[] = []
+  const usedSources: string[] = []
+  let totalChars = 0
+
+  for (const { file, extractor } of sources) {
+    if (totalChars >= MAX_CHARS) break
+    const fullPath = path.join(cwd, file)
+    if (!fs.existsSync(fullPath)) continue
+    try {
+      const content = fs.readFileSync(fullPath, 'utf8').trim()
+      if (!content) continue
+      const extracted = extractor(content).trim()
+      if (!extracted) continue
+      const remaining = MAX_CHARS - totalChars
+      const chunk = extracted.slice(0, remaining)
+      collected.push(chunk)
+      usedSources.push(file)
+      totalChars += chunk.length
+    } catch {
+      // ignore unreadable files
+    }
+  }
+
+  if (collected.length === 0) return undefined
+
+  const combined = collected.join(' | ')
+  console.error(`Auto-detected project context from: ${usedSources.join(', ')} (${combined.length} chars)`)
+  return combined
 }
 
 function showHelp() {
@@ -46,10 +120,17 @@ OPTIONS
   --user-stories          Format titles as "As a [user], I want [goal]..."
   --gherkin               Format acceptance criteria as Given/When/Then
   --format <fmt>          Output format: markdown (default) or json
-  --context, -c <text>    Product context to improve refinement quality
+  --context, -c <text>    Project context (overrides auto-detection)
+  --no-auto-context       Disable auto-detection of project context
   --key, -k <key>         License key for Pro/Team tier (more items/request)
   --version, -v           Show version
   --help, -h              Show this help
+
+AUTO-DETECTION
+  When run from a project directory, the CLI automatically reads context
+  from files like AGENTS.md, CLAUDE.md, README.md, package.json, and
+  prisma/schema.prisma to give the AI more relevant context. Pass
+  --no-auto-context to disable, or --context to override with your own.
 
 TIERS
   Free    Up to 5 items/request — no key needed
@@ -172,11 +253,17 @@ async function main() {
   let useUserStories = false
   let useGherkin = false
   let filePath: string | undefined
+  let noAutoContext = false
+  let contextExplicitlyProvided = false
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--format') { format = args[++i] || 'markdown' }
-    else if (arg === '--context' || arg === '-c') { context = args[++i] }
+    else if (arg === '--context' || arg === '-c') {
+      context = args[++i]
+      contextExplicitlyProvided = true
+    }
+    else if (arg === '--no-auto-context') { noAutoContext = true }
     else if (arg === '--key' || arg === '-k') { licenseKey = args[++i] }
     else if (arg === '--file' || arg === '-f') { filePath = args[++i] }
     else if (arg === '--user-stories') { useUserStories = true }
@@ -202,6 +289,14 @@ async function main() {
     console.error('Error: No items provided. Pass items as arguments, use --file, or pipe via stdin.\n')
     showHelp()
     process.exit(1)
+  }
+
+  // Auto-detect project context if not explicitly provided
+  if (!contextExplicitlyProvided && !noAutoContext) {
+    const detected = detectProjectContext()
+    if (detected) {
+      context = detected
+    }
   }
 
   try {

@@ -1,6 +1,6 @@
 {
   "name": "refine-backlog-cli",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "CLI for the Refine Backlog API — transform messy backlog items into structured, actionable work items",
   "bin": {
     "refine-backlog-cli": "./dist/index.js"
