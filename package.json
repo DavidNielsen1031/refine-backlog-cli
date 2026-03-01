@@ -1,6 +1,6 @@
 {
   "name": "speclint",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI for Speclint — lint your GitHub issues before AI coding agents touch them",
   "bin": {
     "speclint": "./dist/index.js"

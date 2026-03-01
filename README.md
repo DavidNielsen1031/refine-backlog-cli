@@ -1,73 +1,123 @@
-# refine-backlog-cli
+# speclint
 
-Transform messy backlog items into structured, actionable work items — from the command line.
+Lint your GitHub issues before AI coding agents touch them.
 
-Powered by [Refine Backlog](https://refinebacklog.com).
+Powered by [Speclint](https://speclint.ai).
+
+---
 
 ## Quick start
 
 ```bash
-npx refine-backlog-cli "Fix login bug" "Add dark mode" "Improve search performance"
+npx speclint lint --issue 42 --repo owner/repo
 ```
 
-## With a license key (Pro/Team — removes rate limits)
+---
+
+## `lint` subcommand
+
+Score a GitHub issue for spec completeness.
 
 ```bash
-npx refine-backlog-cli --key YOUR_LICENSE_KEY "Fix login bug" "Add dark mode"
+npx speclint lint --issue <number> --repo <owner/repo> [--key <license-key>]
 ```
 
-Or set it in your environment (recommended for CI):
-
-```bash
-export REFINE_BACKLOG_KEY=YOUR_LICENSE_KEY
-npx refine-backlog-cli "Fix login bug" "Add dark mode"
-```
-
-## Read from a file
-
-One backlog item per line:
-
-```bash
-npx refine-backlog-cli --file backlog.txt
-```
-
-## Options
+### Options
 
 | Flag | Description |
 |------|-------------|
-| `--key <key>` | License key (or set `REFINE_BACKLOG_KEY` env var) |
-| `--file <path>` | Read items from a file (one per line) |
-| `--user-stories` | Add a user story to each item |
-| `--gherkin` | Write acceptance criteria in Given/When/Then format |
-| `--format json` | Output raw JSON instead of formatted text |
-| `--context <text>` | Project context to guide the AI |
+| `--issue <number>` | GitHub issue number |
+| `--repo <owner/repo>` | GitHub repository (e.g. `acme/backend`) |
+| `--key <key>` | License key (or set `SPECLINT_KEY` env var) |
 
-## Use in CI / GitHub Actions
+### Environment variables
 
-```yaml
-- name: Refine backlog
-  run: npx refine-backlog-cli --file backlog.txt --format json > refined.json
-  env:
-    REFINE_BACKLOG_KEY: ${{ secrets.REFINE_BACKLOG_KEY }}
-```
+| Variable | Description |
+|----------|-------------|
+| `SPECLINT_KEY` | Your Speclint license key |
+| `GITHUB_TOKEN` | Optional — required for private repos |
 
-## Pipe-friendly
+### Example
 
 ```bash
-echo "Fix login bug" | npx refine-backlog-cli
-cat backlog.txt | npx refine-backlog-cli --format json | jq '.[0].title'
+export SPECLINT_KEY=sk-...
+export GITHUB_TOKEN=ghp_...
+npx speclint lint --issue 42 --repo acme/backend
 ```
+
+---
+
+## `enforce` subcommand
+
+Enforce a minimum spec score in CI — fail the pipeline if a GitHub issue doesn't meet the bar.
+
+```bash
+npx speclint enforce --issue <number> --repo <owner/repo> [--min-score 80] [--key <license-key>]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--issue <number>` | GitHub issue number |
+| `--repo <owner/repo>` | GitHub repository (e.g. `acme/backend`) |
+| `--min-score <number>` | Minimum passing score (default: `80`) |
+| `--key <key>` | License key (or set `SPECLINT_KEY` env var) |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Spec passes minimum score ✅ |
+| `1` | Spec fails minimum score ❌ |
+| `2` | Error (bad args, API failure, etc.) |
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `SPECLINT_KEY` | Your Speclint license key |
+| `GITHUB_TOKEN` | Optional — required for private repos |
+
+### Example CI usage (GitHub Actions)
+
+```yaml
+name: Spec Quality Gate
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  speclint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce spec quality
+        run: |
+          npx speclint enforce \
+            --issue ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --min-score 80
+        env:
+          SPECLINT_KEY: ${{ secrets.SPECLINT_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+---
 
 ## Get a license key
 
-Free tier: 3 requests/day, 5 items per request.  
-Pro ($9/mo): unlimited requests, 25 items.  
-Team ($29/mo): unlimited requests, 50 items.
+Free tier: limited requests/day.  
+Pro ($29/mo): unlimited linting, CI enforcement.  
+Team ($79/mo): unlimited, team-wide keys, priority support.
 
-→ [Get a license key at refinebacklog.com/pricing](https://refinebacklog.com/pricing)
+→ [Get a license key at speclint.ai/pricing](https://speclint.ai/pricing)
+
+---
 
 ## Links
 
-- [Website](https://refinebacklog.com)
-- [API docs](https://refinebacklog.com/openapi.yaml)
-- [MCP server](https://www.npmjs.com/package/refine-backlog-mcp)
+- [Website](https://speclint.ai)
+- [API docs](https://speclint.ai/openapi.yaml)
+- [MCP server](https://speclint.ai/mcp/README.md)
+- [llms.txt](https://speclint.ai/llms.txt)
