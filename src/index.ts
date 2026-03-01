@@ -4,8 +4,8 @@ import fs from 'fs'
 import path from 'path'
 import readline from 'readline'
 
-const API_URL = 'https://refinebacklog.com/api/refine'
-const VERSION = '1.0.2'
+const API_URL = 'https://speclint.ai/api/lint'
+const VERSION = '1.0.0'
 
 interface RefinedItem {
   title: string
@@ -102,18 +102,18 @@ function detectProjectContext(): string | undefined {
 
 function showHelp() {
   console.log(`
-refine-backlog-cli v${VERSION}
+speclint v${VERSION}
 Transform messy backlog items into structured, actionable work items.
 
 USAGE
-  npx refine-backlog-cli [items...] [options]
-  cat backlog.txt | npx refine-backlog-cli [options]
+  npx speclint [items...] [options]
+  cat backlog.txt | npx speclint [options]
 
 EXAMPLES
-  npx refine-backlog-cli "Fix login bug"
-  npx refine-backlog-cli "Fix login" "Add dark mode" "Improve perf"
-  npx refine-backlog-cli --file backlog.txt --gherkin
-  cat items.txt | npx refine-backlog-cli --user-stories --format json
+  npx speclint "Fix login bug"
+  npx speclint "Fix login" "Add dark mode" "Improve perf"
+  npx speclint --file backlog.txt --gherkin
+  cat items.txt | npx speclint --user-stories --format json
 
 OPTIONS
   --file, -f <path>       Read items from file (one per line)
@@ -134,8 +134,8 @@ AUTO-DETECTION
 
 TIERS
   Free    Up to 5 items/request — no key needed
-  Pro     Up to 25 items/request — $9/mo at refinebacklog.com/pricing
-  Team    Up to 50 items/request — $29/mo at refinebacklog.com/pricing
+  Pro     Up to 25 items/request — $9/mo at speclint.ai/pricing
+  Team    Up to 50 items/request — $29/mo at speclint.ai/pricing
 `)
 }
 
@@ -156,7 +156,7 @@ function callApi(items: string[], opts: {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Content-Length': String(Buffer.byteLength(body)),
-      'User-Agent': `refine-backlog-cli/${VERSION}`,
+      'User-Agent': `speclint/${VERSION}`,
     }
 
     if (opts.licenseKey) {
@@ -174,11 +174,11 @@ function callApi(items: string[], opts: {
       res.on('data', chunk => data += chunk)
       res.on('end', () => {
         if (res.statusCode === 429) {
-          reject(new Error('Rate limit hit. Upgrade at refinebacklog.com/pricing or pass --key'))
+          reject(new Error('Rate limit hit. Upgrade at speclint.ai/pricing or pass --key'))
           return
         }
         if (res.statusCode === 402) {
-          reject(new Error('Too many items for free tier. Upgrade at refinebacklog.com/pricing'))
+          reject(new Error('Too many items for free tier. Upgrade at speclint.ai/pricing'))
           return
         }
         if (!res.statusCode || res.statusCode >= 400) {
@@ -233,8 +233,168 @@ async function readStdin(): Promise<string[]> {
   return lines
 }
 
+interface LintApiResponse {
+  issues?: Array<{
+    lint_id?: string
+    completeness_score?: number
+    agent_ready?: boolean
+    title?: string
+    checks?: Record<string, { pass: boolean; message?: string }>
+  }>
+  lint_id?: string
+  completeness_score?: number
+  agent_ready?: boolean
+  title?: string
+  checks?: Record<string, { pass: boolean; message?: string }>
+}
+
+function fetchUrl(url: string, opts: {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+}): Promise<{ status: number; data: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    const reqOpts = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: opts.method || 'GET',
+      headers: opts.headers || {},
+    }
+    const req = https.request(reqOpts, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => resolve({ status: res.statusCode || 0, data }))
+    })
+    req.on('error', reject)
+    if (opts.body) req.write(opts.body)
+    req.end()
+  })
+}
+
+async function runEnforce(args: string[]) {
+  let issueNumber: string | undefined
+  let repo: string | undefined
+  let minScore = 80
+  let licenseKey: string | undefined
+  let githubToken: string | undefined = process.env.GITHUB_TOKEN
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--issue') issueNumber = args[++i]
+    else if (arg === '--repo') repo = args[++i]
+    else if (arg === '--min-score') minScore = parseInt(args[++i] || '80', 10)
+    else if (arg === '--key' || arg === '-k') licenseKey = args[++i]
+    else if (arg === '--github-token') githubToken = args[++i]
+  }
+
+  if (!issueNumber || !repo) {
+    console.error('Error: --issue and --repo are required for enforce subcommand')
+    console.error('Usage: npx speclint enforce --issue <number> --repo <owner/repo>')
+    process.exit(1)
+  }
+
+  // Fetch GitHub issue
+  const ghUrl = `https://api.github.com/repos/${repo}/issues/${issueNumber}`
+  const ghHeaders: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': `speclint/${VERSION}`,
+  }
+  if (githubToken) {
+    ghHeaders['Authorization'] = `Bearer ${githubToken}`
+  }
+
+  let issueTitle: string
+  let issueBody: string
+  let issueLabels: string[]
+
+  try {
+    const ghRes = await fetchUrl(ghUrl, { headers: ghHeaders })
+    if (ghRes.status === 404) {
+      console.error(`Error: Issue #${issueNumber} not found in ${repo}`)
+      process.exit(1)
+    }
+    if (ghRes.status >= 400) {
+      console.error(`Error: GitHub API returned ${ghRes.status}: ${ghRes.data.slice(0, 200)}`)
+      process.exit(1)
+    }
+    const issue = JSON.parse(ghRes.data)
+    issueTitle = issue.title || ''
+    issueBody = issue.body || ''
+    issueLabels = (issue.labels || []).map((l: { name: string }) => l.name)
+  } catch (err) {
+    console.error(`Error fetching GitHub issue: ${(err as Error).message}`)
+    process.exit(1)
+  }
+
+  // Lint through /api/lint
+  const lintBody = JSON.stringify({
+    issues: [{ title: issueTitle, body: issueBody, labels: issueLabels }],
+    preserve_structure: true,
+  })
+  const lintHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Content-Length': String(Buffer.byteLength(lintBody)),
+    'User-Agent': `speclint/${VERSION}`,
+  }
+  if (licenseKey) lintHeaders['x-license-key'] = licenseKey
+
+  let lintResult: LintApiResponse
+  try {
+    const lintRes = await fetchUrl('https://speclint.ai/api/lint', {
+      method: 'POST',
+      headers: lintHeaders,
+      body: lintBody,
+    })
+    if (lintRes.status >= 400) {
+      console.error(`Error: Lint API returned ${lintRes.status}: ${lintRes.data.slice(0, 200)}`)
+      process.exit(1)
+    }
+    lintResult = JSON.parse(lintRes.data)
+  } catch (err) {
+    console.error(`Error calling lint API: ${(err as Error).message}`)
+    process.exit(1)
+  }
+
+  // Extract result — handle both array and flat response shapes
+  const issueResult = lintResult.issues?.[0] ?? lintResult
+  const score = issueResult.completeness_score ?? 0
+  const agentReady = issueResult.agent_ready ?? false
+  const lintId = issueResult.lint_id ? `#${issueResult.lint_id}` : ''
+  const checks = issueResult.checks ?? {}
+
+  if (score >= minScore) {
+    const idPart = lintId ? ` | ${lintId}` : ''
+    console.log(`✅ Lint passed${idPart} | Score: ${score}/100 | agent_ready: ${agentReady}`)
+    console.log(`Issue #${issueNumber}: "${issueTitle}"`)
+    console.log('Proceeding with implementation.')
+    process.exit(0)
+  } else {
+    const idPart = lintId ? ` | ${lintId}` : ''
+    console.log(`❌ Lint failed${idPart} | Score: ${score}/100 | NOT agent_ready`)
+    console.log(`Issue #${issueNumber}: "${issueTitle}"`)
+
+    const failing = Object.entries(checks).filter(([, v]) => !v.pass)
+    if (failing.length > 0) {
+      console.log('\nMissing:')
+      for (const [key, val] of failing) {
+        const msg = val.message ? ` — ${val.message}` : ''
+        console.log(`  ✗ ${key}${msg}`)
+      }
+    }
+
+    console.log(`\nEdit the issue body and re-run: npx speclint enforce --issue ${issueNumber} --repo ${repo}`)
+    process.exit(1)
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2)
+
+  if (args[0] === 'enforce') {
+    await runEnforce(args.slice(1))
+    return
+  }
 
   if (args.includes('--help') || args.includes('-h')) {
     showHelp()
@@ -242,7 +402,7 @@ async function main() {
   }
 
   if (args.includes('--version') || args.includes('-v')) {
-    console.log(`refine-backlog-cli v${VERSION}`)
+    console.log(`speclint v${VERSION}`)
     process.exit(0)
   }
 

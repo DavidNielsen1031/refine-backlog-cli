@@ -1,28 +1,29 @@
 {
-  "name": "refine-backlog-cli",
-  "version": "1.0.2",
-  "description": "CLI for the Refine Backlog API — transform messy backlog items into structured, actionable work items",
+  "name": "speclint",
+  "version": "1.0.0",
+  "description": "CLI for Speclint — lint your GitHub issues before AI coding agents touch them",
   "bin": {
-    "refine-backlog-cli": "./dist/index.js"
+    "speclint": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/index.ts"
   },
   "keywords": [
-    "backlog",
-    "agile",
-    "scrum",
-    "product-management",
-    "cli",
-    "refinement"
+    "speclint",
+    "github-actions",
+    "ai-agents",
+    "spec",
+    "issues",
+    "completeness",
+    "lint"
   ],
   "author": "Perpetual Agility LLC",
   "license": "MIT",
-  "homepage": "https://refinebacklog.com",
+  "homepage": "https://speclint.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DavidNielsen1031/refine-backlog-cli"
+    "url": "https://github.com/speclint-ai/speclint-action"
   },
   "devDependencies": {
     "@types/node": "^22.19.11",
